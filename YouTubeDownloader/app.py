@@ -32,9 +32,10 @@ HINT_GRAY, HINT_WARN = "gray60", "#d9822b"
 def load_settings() -> dict:
     try:
         with open(SETTINGS, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except (OSError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}   # 설정 파일이 깨져 있어도 프로그램은 켜지게
 
 
 class App(ctk.CTk):
@@ -344,8 +345,11 @@ class App(ctk.CTk):
                 data = info.thumbnail_bytes()   # 앨범아트에도 그대로 재사용
                 if not data:
                     return "thumb", None
-                img = Image.open(io.BytesIO(data))
-                img.thumbnail((160, 90))
+                try:
+                    img = Image.open(io.BytesIO(data))
+                    img.thumbnail((160, 90))
+                except Exception:   # 미리보기 그림을 못 읽어도 오류 창 없이 넘어감
+                    return "thumb", None
                 return "thumb", img
             self.run_bg(load)
 
