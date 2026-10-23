@@ -7,6 +7,7 @@ import os
 import queue
 import sys
 import threading
+import webbrowser
 from tkinter import filedialog, messagebox
 
 import updater
@@ -19,6 +20,7 @@ from PIL import Image  # noqa: E402
 from yt_dlp.utils import formatSeconds  # noqa: E402
 
 import core  # noqa: E402
+from version import __version__  # noqa: E402
 
 ICON = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "icon.ico")
 SETTINGS = os.path.join(os.path.expanduser("~"), ".ytdl_settings.json")
@@ -38,7 +40,7 @@ def load_settings() -> dict:
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title(f"유튜브 다운로더 (엔진 {yt_dlp.version.__version__})")
+        self.title(f"유튜브 다운로더 {__version__} (엔진 {yt_dlp.version.__version__})")
         self.geometry("640x620")
         self.minsize(600, 600)
         ctk.set_appearance_mode("system")
@@ -120,6 +122,8 @@ class App(ctk.CTk):
         self.refresh_options()
         self.after(100, self.poll)
         self.after(600, self.check_tools)
+        threading.Thread(target=lambda: self.q.put(("update", updater.check_app_update(__version__))),
+                         daemon=True).start()
         if sys.platform == "win32" and os.path.exists(ICON):   # customtkinter 기본 아이콘을 덮어쓴 뒤에 적용
             self.after(250, lambda: self.iconbitmap(ICON))
 
@@ -305,6 +309,11 @@ class App(ctk.CTk):
                     self.bar.set(1)
                 elif kind == "msg":
                     self.set_busy(False, data)
+                elif kind == "update" and data:
+                    ver, url = data
+                    if messagebox.askyesno("새 버전", f"새 버전 {ver}이(가) 나왔습니다 (현재 {__version__}).\n\n"
+                                           "다운로드 페이지를 열까요?"):
+                        webbrowser.open(url)
                 elif kind == "error":
                     self.set_busy(False, "오류")
                     messagebox.showerror("오류", data)

@@ -17,6 +17,9 @@ import urllib.request
 APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "YouTubeDownloader")
 LIB_DIR = os.path.join(APP_DIR, "lib")
 
+RELEASES_API = "https://api.github.com/repos/KIMkisu08/phil/releases?per_page=30"
+RELEASE_TAG_PREFIX = "ytd-v"   # 이 프로그램의 릴리스 태그 (저장소의 다른 릴리스와 구분)
+
 ENGINE_PACKAGES = ("yt-dlp", "yt-dlp-ejs")   # 다운로드 엔진 + 유튜브 해석 스크립트
 TOOLS = {"ffmpeg": "Gyan.FFmpeg", "deno": "DenoLand.Deno"}   # 실행 파일 → winget ID
 
@@ -148,3 +151,26 @@ def update_engine() -> str:
     except urllib.error.URLError as e:
         raise RuntimeError(f"인터넷 연결을 확인하세요. ({e.reason})") from e
     return ", ".join(done)
+
+
+def check_app_update(current: str) -> tuple[str, str] | None:
+    """GitHub 릴리스에 더 새 exe가 있으면 (버전, 릴리스 페이지 주소). 없거나 확인 실패면 None."""
+    if not re.fullmatch(r"\d+(\.\d+)*", current):
+        return None   # "dev" 등 직접 빌드한 실행 파일
+    try:
+        req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            releases = json.load(r)
+    except (OSError, ValueError):
+        return None   # 오프라인 등: 조용히 넘어감
+    best = None
+    for rel in releases:
+        tag = rel.get("tag_name") or ""
+        if rel.get("draft") or rel.get("prerelease") or not tag.startswith(RELEASE_TAG_PREFIX):
+            continue
+        ver = tag[len(RELEASE_TAG_PREFIX):]
+        if best is None or _vtuple(ver) > _vtuple(best[0]):
+            best = (ver, rel.get("html_url") or "")
+    if best and _vtuple(best[0]) > _vtuple(current):
+        return best
+    return None

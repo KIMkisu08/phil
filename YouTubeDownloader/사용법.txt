@@ -44,4 +44,8 @@ CD 굽기용 FLAC 파일들을 CDBurnerXP(무료) → "오디오 디스크"에 �
 창 제목의 "엔진 날짜"가 바뀌면 적용된 것입니다.
 (업데이트 파일 위치: %LOCALAPPDATA%\YouTubeDownloader\lib — 문제가 생기면 이 폴더를 지우면 원래대로)
 
+[새 버전 받기]
+프로그램을 켤 때 새 버전이 있으면 알려 줍니다. [예]를 누르면 다운로드 페이지가 열립니다.
+직접 확인: https://github.com/KIMkisu08/phil/releases
+
 ※ 개인 소장용으로만 사용하고 재배포하지 마세요.
