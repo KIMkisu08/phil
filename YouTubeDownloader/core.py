@@ -151,6 +151,8 @@ def is_youtube_url(url: str) -> bool:
 
 
 def _ydl_opts(browser: str | None, cookie_file: str | None) -> dict:
+    if cookie_file and not os.path.isfile(cookie_file):
+        raise DownloadError(f"쿠키 파일을 찾을 수 없습니다: {cookie_file}\n쿠키 파일을 다시 고르거나 해제하세요.")
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
     if cookie_file:
         opts["cookiefile"] = cookie_file
@@ -199,7 +201,7 @@ def fetch_info(url: str, browser: str | None = None, cookie_file: str | None = N
     try:
         with yt_dlp.YoutubeDL(_ydl_opts(browser, cookie_file)) as ydl:
             info = ydl.extract_info(url, download=False)
-    except yt_dlp.utils.DownloadError as e:
+    except (yt_dlp.utils.YoutubeDLError, OSError) as e:   # 쿠키 읽기 실패(CookieLoadError) 포함
         raise DownloadError(_friendly(str(e))) from e
     if info.get("_type") == "playlist":
         raise DownloadError("재생목록 링크입니다. 곡 하나의 링크를 넣어주세요.")
@@ -218,16 +220,35 @@ def fetch_info(url: str, browser: str | None = None, cookie_file: str | None = N
     )
 
 
+_NETWORK_HINTS = ("getaddrinfo", "name or service not known", "nodename nor servname", "timed out",
+                  "connection reset", "connection refused", "connection aborted", "network is unreachable",
+                  "no route to host", "remote end closed", "incompleteread", "tunnel connection failed",
+                  "urlopen error", "http error 5")
+
+
 def _friendly(msg: str) -> str:
+    # yt-dlp 오류 앞뒤의 "ERROR:" 와 "버그 신고해 주세요" 안내는 사용자에게 의미가 없어 뺌
+    msg = re.sub(r"^\s*ERROR:\s*", "", msg)
+    msg = re.split(r";\s*please report this issue", msg, flags=re.IGNORECASE)[0].strip()
     low = msg.lower()
-    if "confirm your age" in low or ("age" in low and "restrict" in low):
+    if "confirm your age" in low or re.search(r"\bage\b.*restrict|restrict.*\bage\b", low):
         return "연령 제한 영상입니다. 로그인 쿠키(Firefox)를 켜고 다시 시도하세요."
     if "private" in low:
         return "비공개 영상입니다."
     if "cookie" in low and ("could not" in low or "failed" in low):
         return "브라우저 쿠키를 읽지 못했습니다. Firefox에서 유튜브에 로그인했는지 확인하세요.\n" + msg
+    if any(h in low for h in _NETWORK_HINTS):
+        return "인터넷 연결이 끊겼거나 유튜브에 접속하지 못했습니다. 연결을 확인하고 다시 시도하세요.\n" + msg
     if "unavailable" in low:
         return "볼 수 없는 영상입니다(삭제/지역 제한)."
+    if "unsupported url" in low or "incomplete youtube id" in low or "is not a valid url" in low:
+        return "링크를 이해하지 못했습니다. 영상 주소를 그대로 다시 복사해 붙여넣으세요."
+    if "no space left" in low or "disk full" in low or "errno 28" in low:
+        return "저장 공간이 부족합니다. 디스크 여유 공간을 확인하세요."
+    if "permission denied" in low or "errno 13" in low:
+        return "저장 위치에 쓸 권한이 없습니다. 다른 폴더를 고르세요.\n" + msg
+    if "http error 403" in low:
+        return "유튜브가 다운로드를 막았습니다. 아래 [다운로드 엔진(yt-dlp) 업데이트] 후 다시 실행해 보세요.\n" + msg
     return msg
 
 
@@ -261,11 +282,21 @@ def download(
             raise DownloadError("선택한 화질을 찾을 수 없습니다.")
         fmt = f"{vf['format_id']}+ba[acodec^=mp4a]/{vf['format_id']}+ba"   # 소리는 아이폰 호환 AAC 우선
     stem = safe_filename(f"{artist} - {title}" if artist else title)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = out_dir.strip()
+    if not out_dir:
+        raise DownloadError("저장 위치를 입력하세요.")
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        return _download_to(out_dir, stem, info, kind, option, fmt, artist, title, ffmpeg,
+                            _ydl_opts(browser, cookie_file), progress)
+    except OSError as e:   # 폴더 만들기·임시 파일·이동 실패 (없는 드라이브, 권한, 디스크 부족 등)
+        raise DownloadError(_friendly(f"파일을 저장하지 못했습니다 ({out_dir}): {e}")) from e
 
+
+def _download_to(out_dir, stem, info, kind, option, fmt, artist, title, ffmpeg, opts, progress) -> str:
     # 저장 폴더 안에 임시 폴더: 저장 폴더가 다른 드라이브여도 마지막 이동이 즉시 끝남
-    with tempfile.TemporaryDirectory(prefix=".ytdl_", dir=out_dir) as tmp:
-        opts = _ydl_opts(browser, cookie_file)
+    # (백신 등이 임시 파일을 잡고 있어 정리에 실패해도, 이미 저장된 결과를 오류로 만들지 않음)
+    with tempfile.TemporaryDirectory(prefix=".ytdl_", dir=out_dir, ignore_cleanup_errors=True) as tmp:
         opts.update({
             "format": fmt,
             "outtmpl": os.path.join(tmp, "src.%(ext)s"),
@@ -277,10 +308,11 @@ def download(
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([info.url])
-        except yt_dlp.utils.DownloadError as e:
+        except yt_dlp.utils.YoutubeDLError as e:
             raise DownloadError(_friendly(str(e))) from e
 
-        src = next((os.path.join(tmp, f) for f in os.listdir(tmp) if f.startswith("src.")), None)
+        src = next((os.path.join(tmp, f) for f in sorted(os.listdir(tmp))
+                    if f.startswith("src.") and not f.endswith((".part", ".ytdl"))), None)
         if not src:
             raise DownloadError("다운로드한 파일을 찾지 못했습니다.")
         progress(100, "변환 및 태그 기록 중…")
@@ -293,9 +325,10 @@ def download(
             _ffmpeg(ffmpeg, ["-i", src, "-vn", "-map_metadata", "-1", *codec, out])
             cover = _square_cover(info.thumbnail_bytes())
 
+        # 태그를 먼저 쓰고 옮김: 태그 기록이 실패해도 저장 폴더에 반쯤 된 파일이 남지 않음
+        tag_file(out, artist, title, cover)
         final = unique_path(out_dir, stem, ext)
         shutil.move(out, final)
-        tag_file(final, artist, title, cover)
         return final
 
 

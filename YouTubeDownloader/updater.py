@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import http.client
 import importlib
 import importlib.metadata
 import json
@@ -150,6 +151,10 @@ def update_engine() -> str:
             done.append(f"{pkg} {ver}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"인터넷 연결을 확인하세요. ({e.reason})") from e
+    except (TimeoutError, ConnectionError, http.client.HTTPException) as e:   # 받는 도중 끊김·시간 초과
+        raise RuntimeError(f"인터넷 연결을 확인하세요. ({type(e).__name__}: {e})") from e
+    except ValueError as e:   # PyPI 응답이 깨졌을 때 (JSON 해석 실패)
+        raise RuntimeError("업데이트 정보를 읽지 못했습니다. 잠시 후 다시 시도하세요.") from e
     return ", ".join(done)
 
 
