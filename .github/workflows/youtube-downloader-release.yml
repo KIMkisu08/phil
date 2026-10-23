@@ -1,8 +1,9 @@
 name: YouTubeDownloader release
 
-# 태그 ytd-v* 를 푸시하면 Windows에서 YouTubeDownloader.exe를 빌드해
-# GitHub Release에 올린다. PR과 수동 실행은 빌드만 하고 결과물을
-# 아티팩트로 남긴다(릴리스는 만들지 않음).
+# 태그 ytd-v* 를 푸시하거나, Actions 탭에서 버전을 넣고 수동 실행하면
+# Windows에서 YouTubeDownloader.exe를 빌드해 GitHub Release에 올린다
+# (수동 실행은 그 커밋에 ytd-v<버전> 태그를 새로 만든다). PR과 버전 없는
+# 수동 실행은 빌드만 하고 결과물을 아티팩트로 남긴다.
 on:
   push:
     tags: ["ytd-v*"]
@@ -11,6 +12,11 @@ on:
       - "YouTubeDownloader/**"
       - ".github/workflows/youtube-downloader-release.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "릴리스할 버전 (예: 1.0.0). 비우면 빌드만 함"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -37,13 +43,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Pick release tag
         env:
-          TAG: ${{ github.ref_name }}
+          REF_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          $ver = $env:TAG -replace '^ytd-v', ''
-          if ($ver -notmatch '^\d+(\.\d+)*$') { throw "태그 형식은 ytd-v1.2.3 이어야 합니다: $env:TAG" }
+          $tag = if ($env:REF_TAG) { $env:REF_TAG } elseif ($env:INPUT_VERSION) { "ytd-v$($env:INPUT_VERSION.Trim())" } else { "" }
+          "RELEASE_TAG=$tag" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Set version from tag
+        if: env.RELEASE_TAG != ''
+        run: |
+          $ver = $env:RELEASE_TAG -replace '^ytd-v', ''
+          if ($ver -notmatch '^\d+(\.\d+)*$') { throw "버전 형식은 1.2.3 이어야 합니다: $env:RELEASE_TAG" }
           Set-Content -Encoding utf8 version.py "__version__ = `"$ver`""
 
       - name: Build exe
@@ -76,12 +88,12 @@ jobs:
             YouTubeDownloader/SHA256SUMS.txt
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.RELEASE_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: >
-          gh release create $env:TAG
+          gh release create $env:RELEASE_TAG
           dist/YouTubeDownloader.exe YouTubeDownloader_exe.zip SHA256SUMS.txt
-          --title "유튜브 음원 다운로더 $($env:TAG -replace '^ytd-v','')"
+          --target ${{ github.sha }}
+          --title "유튜브 음원 다운로더 $($env:RELEASE_TAG -replace '^ytd-v','')"
           --notes "YouTubeDownloader_exe.zip을 받아 압축을 풀고 YouTubeDownloader.exe를 실행하세요."
