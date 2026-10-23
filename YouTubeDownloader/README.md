@@ -15,11 +15,14 @@
 
 ## 새 버전 내보내기 (개발용)
 
-`ytd-v` 로 시작하는 태그를 푸시하면 GitHub Actions가 Windows에서 exe를 빌드해 릴리스에 올립니다.
+방법 1 (웹에서): 저장소의 **Actions** 탭 → **YouTubeDownloader release** → **Run workflow** → 버전(예: `1.0.1`)을 넣고 실행.
+그 커밋에 `ytd-v1.0.1` 태그가 만들어지고 exe가 릴리스에 올라갑니다.
+
+방법 2 (git): `ytd-v` 로 시작하는 태그를 푸시합니다.
 
 ```
-git tag ytd-v1.0.0
-git push origin ytd-v1.0.0
+git tag ytd-v1.0.1
+git push origin ytd-v1.0.1
 ```
 
 PR에서 이 폴더를 바꾸면 빌드만 확인하고, 결과 exe는 해당 실행의 Artifacts에서 받을 수 있습니다.
