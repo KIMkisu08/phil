@@ -1,0 +1,4 @@
+yt-dlp[default]
+customtkinter==5.2.2
+mutagen
+pillow
